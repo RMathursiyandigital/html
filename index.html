@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>CuraTrail • AI Conversation (Phase 2 Demo)</title>
+<style>
+  :root{--bg:#0f172a;--panel:#111827;--sub:#334155;--text:#e5e7eb;--muted:#94a3b8;--accent:#22c55e;--danger:#ef4444;--warn:#f59e0b;}
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#020617,#0b1222 55%,#0f172a);color:var(--text);font:14px/1.4 system-ui,Segoe UI,Roboto,Helvetica,Arial}
+  .wrap{max-width:980px;margin:24px auto;padding:16px}
+  .card{background:#0b1220;border:1px solid #1f2937;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);overflow:hidden}
+  header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #1f2937;gap:12px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0;letter-spacing:.4px}
+  header .tag{font-size:12px;color:var(--muted)}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .controls .grp{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12px}
+  .controls input[type="text"], .controls input[type="number"], .controls input[type="email"]{height:30px;border-radius:8px;border:1px solid #1f2937;background:#0f172a;color:var(--text);padding:0 8px;width:180px}
+  button{border:1px solid #1f2937;background:#0f172a;color:var(--text);padding:8px 12px;border-radius:10px;cursor:pointer}
+  button.primary{background:#16a34a;border-color:#16a34a}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  label{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12px}
+  input[type="checkbox"]{transform:translateY(1px)}
+  main{display:grid;grid-template-columns:1fr 320px}
+  @media (max-width:980px){main{grid-template-columns:1fr}}
+  .chat{min-height:420px;max-height:70vh;overflow:auto;padding:16px;scroll-behavior:smooth}
+  .bubble{max-width:78%;margin:8px 0;padding:10px 12px;border-radius:12px;border:1px solid #1f2937;white-space:pre-wrap;position:relative}
+  .user{margin-left:auto;background:#0a223a}
+  .assistant{background:#0b1f1a;border-color:#14392c}
+  .system{background:#16181d;border-style:dashed;color:#cbd5e1}
+  .event{font-size:12px;color:#94a3b8;margin:6px 0}
+  .composer{display:flex;gap:8px;padding:12px;border-top:1px solid #1f2937;background:#0a0f1a;align-items:flex-start}
+  .composer textarea{flex:1;min-height:44px;max-height:140px;resize:vertical;background:#0b1220;border:1px solid #1f2937;color:#e5e7eb;border-radius:10px;padding:10px}
+  aside{border-left:1px solid #1f2937;background:#0a0f1a}
+  .aside-inner{padding:14px}
+  .kv{display:grid;grid-template-columns:120px 1fr;gap:6px 10px;font-size:12px;color:#cbd5e1}
+  .kv span{color:#94a3b8}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #1f2937}
+  .pill.warn{background:rgba(245,158,11,.12);border-color:#f59e0b;color:#fbbf24}
+  .pill.cap{background:rgba(239,68,68,.12);border-color:#ef4444;color:#fca5a5}
+  .pill.done{background:rgba(34,197,94,.14);border-color:#22c55e;color:#86efac}
+  .timer{font-variant-numeric:tabular-nums}
+  .link{color:#60a5fa;text-decoration:none}
+  .fb{display:flex;gap:6px;margin-top:6px}
+  .fb button{font-size:12px;padding:2px 8px;border-radius:8px}
+  .fb .up{border-color:#16a34a}
+  .fb .down{border-color:#ef4444}
+  .tiny{font-size:11px;color:#94a3b8;margin-top:4px}
+  .select-panel{min-width:260px;max-width:420px;background:#0b1220;border:1px solid #1f2937;border-radius:10px;padding:8px;display:none}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+  .chip{padding:4px 10px;border-radius:999px;border:1px solid #1f2937;cursor:pointer}
+  .chip.sel{background:#14392c;border-color:#16a34a}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <header>
+      <div>
+        <h1>CuraTrail — AI Conversation (Phase 2)</h1>
+        <div class="tag">Talking to <code id="apiLabel">detecting…</code></div>
+      </div>
+      <div class="controls">
+        <div class="grp" title="Email used as user_id (required)">
+          <span>Email</span>
+          <input id="emailId" type="email" placeholder="you@example.com" />
+        </div>
+        <div class="grp" title="Program ID to bind the plan (Phase 2)">
+          <span>Program</span>
+          <input id="programId" type="text" value="cbt_base_v1" />
+        </div>
+        <div class="grp" title="Session number within the program">
+          <span>Session #</span>
+          <input id="sessionNum" type="number" value="1" min="1" />
+        </div>
+        <label title="Short demo: warn @ 50s, cap @ 60s">
+          <input id="fastMode" type="checkbox"> Fast mode
+        </label>
+        <button id="btnStart" class="primary">Start Session</button>
+        <button id="btnRecap" disabled>Generate Recap</button>
+      </div>
+    </header>
+    <main>
+      <section>
+        <div id="chat" class="chat"></div>
+        <div class="composer">
+          <div id="selectPanel" class="select-panel">
+            <div id="selectHelp" class="tiny"></div>
+            <div id="chips" class="chips"></div>
+            <div style="display:flex;gap:6px;justify-content:flex-end">
+              <button id="btnSelectCancel">Cancel</button>
+              <button id="btnSelectSend" class="primary">Send Selection</button>
+            </div>
+          </div>
+          <textarea id="input" placeholder="Type how you're feeling… or answer the question shown"></textarea>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <button id="btnSend" disabled>Send</button>
+            <button id="btnGoDash" style="display:none">Go to Dashboard</button>
+          </div>
+        </div>
+      </section>
+      <aside>
+        <div class="aside-inner">
+          <h3 style="margin:4px 0 10px 0">Session</h3>
+          <div class="kv">
+            <span>User</span><div id="emailVal">—</div>
+            <span>Session ID</span><code id="sid">—</code>
+            <span>Status</span><div id="status"><span class="pill">—</span></div>
+            <span>Time left</span><div class="timer" id="timeLeft">—</div>
+            <span>Fast mode</span><div id="fastVal">—</div>
+            <span>Program</span><div id="programVal">—</div>
+            <span>Session #</span><div id="sessNumVal">—</div>
+          </div>
+          <hr style="border-color:#1f2937;margin:12px 0" />
+          <h3 style="margin:4px 0 8px 0">Events</h3>
+          <div id="events" style="font-size:12px;color:#a3b8d1"></div>
+          <hr style="border-color:#1f2937;margin:12px 0" />
+          <div class="tiny">
+            <p><b>Tips</b></p>
+            <ul>
+              <li>Enter your email (used as user_id) before starting.</li>
+              <li>Run Session 1 to see the deterministic intake form flow.</li>
+              <li>Run Session 2 to see case map → goals (multiselect) → homework → recap.</li>
+              <li>Safety test: “I want to end my life” → session locks.</li>
+              <li>👍/👎 shows only when allowed by the agent.</li>
+            </ul>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+</div>
+
+<script>
+/* ===== API/WS base detection =====
+   Priority:
+   1) ?api=https://host[:port][/v1] (you can pass with or without /v1)
+   2) If running on azurecontainerapps.io → use same origin
+   3) Fallback to your deployed Container Apps host
+   4) Last resort: local dev
+*/
+const Q = new URLSearchParams(location.search);
+function trimSlash(s){ return s.replace(/\/+$/,''); }
+
+let API_BASE = Q.get("api");
+if (API_BASE) {
+  API_BASE = trimSlash(API_BASE);
+  if (!/\/v1$/.test(API_BASE)) API_BASE += "/v1";
+} else if (location.hostname.endsWith("azurecontainerapps.io")) {
+  API_BASE = location.origin + "/v1";
+} else {
+  API_BASE = "https://curatrail-ai-conversation.reddesert-cb734ab9.westus3.azurecontainerapps.io/v1";
+}
+const API = API_BASE;
+
+function wsBaseFromApi(){
+  // https://host → wss://host   |   http://host → ws://host
+  const u = new URL(API);
+  const proto = (u.protocol === "https:") ? "wss:" : "ws:";
+  return `${proto}//${u.host}`;
+}
+
+document.getElementById("apiLabel").textContent = API.replace(/\/v1$/,'');
+
+/* ===== DOM refs ===== */
+const chatEl = document.getElementById("chat");
+const inputEl = document.getElementById("input");
+const btnSend = document.getElementById("btnSend");
+const btnStart = document.getElementById("btnStart");
+const btnRecap = document.getElementById("btnRecap");
+const btnGoDash = document.getElementById("btnGoDash");
+const sidEl = document.getElementById("sid");
+const statusEl = document.getElementById("status");
+const timeLeftEl = document.getElementById("timeLeft");
+const eventsEl = document.getElementById("events");
+const fastModeChk = document.getElementById("fastMode");
+const fastValEl = document.getElementById("fastVal");
+const programInput = document.getElementById("programId");
+const sessionNumInput = document.getElementById("sessionNum");
+const programValEl = document.getElementById("programVal");
+const sessNumValEl = document.getElementById("sessNumVal");
+const emailInput = document.getElementById("emailId");
+const emailValEl = document.getElementById("emailVal");
+
+/* UI hints panel (multiselect) */
+const selectPanel = document.getElementById("selectPanel");
+const selectHelp = document.getElementById("selectHelp");
+const chipsEl = document.getElementById("chips");
+const btnSelectSend = document.getElementById("btnSelectSend");
+const btnSelectCancel = document.getElementById("btnSelectCancel");
+
+let sessionId = null;
+let ws = null;
+let timerHandle = null;
+let currentHints = null;
+
+function addBubble(role, text, opts={}){
+  const { turnId=null, noFeedback=false, practiceId=null, nextAction=null } = opts;
+  const div = document.createElement("div");
+  div.className = "bubble " + role;
+  div.textContent = text;
+
+  if (role === "assistant" && !noFeedback) {
+    const bar = document.createElement("div");
+    bar.className = "fb";
+    const up = document.createElement("button");
+    up.className = "up";
+    up.textContent = "👍 Helpful";
+    const down = document.createElement("button");
+    down.className = "down";
+    down.textContent = "👎 Not helpful";
+
+    function disableButtons(msg){
+      up.disabled = true; down.disabled = true;
+      const note = document.createElement("div");
+      note.className = "tiny";
+      note.textContent = msg || "Thanks for the feedback.";
+      bar.appendChild(note);
+    }
+
+    up.onclick = async () => {
+      if (!turnId) return disableButtons("Turn id missing.");
+      try{
+        await fetch(`${API}/conversations/feedback`, {
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ session_id: sessionId, turn_id: turnId, vote: "up" })
+        });
+        disableButtons("Noted. I’ll adjust.");
+      }catch(e){ disableButtons("Saved locally."); }
+    };
+    down.onclick = async () => {
+      if (!turnId) return disableButtons("Turn id missing.");
+      try{
+        await fetch(`${API}/conversations/feedback`, {
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ session_id: sessionId, turn_id: turnId, vote: "down" })
+        });
+        disableButtons("Thanks. I’ll do better.");
+      }catch(e){ disableButtons("Saved locally."); }
+    };
+
+    bar.appendChild(up);
+    bar.appendChild(down);
+    div.appendChild(document.createElement("br"));
+    div.appendChild(bar);
+  }
+
+  chatEl.appendChild(div);
+  chatEl.scrollTop = chatEl.scrollHeight;
+
+  if (practiceId || nextAction) {
+    addEvent(`assistant meta → ${practiceId ? `practice=${practiceId} `:""}${nextAction ? `next=${nextAction}`:""}`);
+  }
+}
+
+function addEvent(text){
+  const div = document.createElement("div");
+  div.className = "event";
+  div.textContent = "• " + text;
+  eventsEl.prepend(div);
+}
+
+function setStatus(s){
+  const span = document.createElement("span");
+  span.className = "pill";
+  if(s==="warned"){ span.classList.add("warn"); }
+  if(s==="capped"){ span.classList.add("cap"); }
+  if(s==="completed"){ span.classList.add("done"); }
+  span.textContent = s;
+  statusEl.innerHTML=""; statusEl.appendChild(span);
+}
+
+function fmt(sec){
+  const m = Math.floor(sec/60).toString().padStart(2,"0");
+  const s = Math.floor(sec%60).toString().padStart(2,"0");
+  return `${m}:${s}`;
+}
+
+async function fetchStateTick(){
+  if(!sessionId) return;
+  try{
+    const r = await fetch(`${API}/sessions/${sessionId}/state`);
+    const j = await r.json();
+    setStatus(j.status);
+    timeLeftEl.textContent = fmt(j.time_left_sec ?? 0);
+    fastValEl.textContent = j.fast_mode ? "Yes" : "No";
+    if(j.status==="capped" || j.status==="completed" || j.status==="safety_locked"){
+      disableComposer();
+      clearInterval(timerHandle);
+    }
+  }catch(e){}
+}
+
+function disableComposer(){
+  btnSend.disabled = true;
+  inputEl.disabled = true;
+  selectPanel.style.display = "none";
+}
+
+function enableComposer(){
+  btnSend.disabled = false;
+  inputEl.disabled = false;
+}
+
+function validEmail(v){
+  return typeof v === "string" && v.includes("@") && v.includes(".");
+}
+
+async function startSession(){
+  btnStart.disabled = true;
+  try{
+    const email = (emailInput.value || "").trim();
+    if(!validEmail(email)){
+      alert("Please enter a valid email (used as user_id).");
+      btnStart.disabled = false;
+      return;
+    }
+
+    const payload = {
+      email,                                        // REQUIRED by backend as user_id
+      template_version:"v1",
+      fast_mode: fastModeChk.checked,
+      program_id: programInput.value || "cbt_base_v1",
+      session_num: Number(sessionNumInput.value || 1)
+    };
+    const r = await fetch(`${API}/sessions/start`, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(()=>({detail:"Start failed"}));
+      alert(e.detail || "Failed to start session");
+      btnStart.disabled = false;
+      return;
+    }
+    const j = await r.json();
+    sessionId = j.session_id;
+    sidEl.textContent = sessionId;
+    emailValEl.textContent = email;
+    setStatus(j.status);
+    timeLeftEl.textContent = fmt(j.time_left_sec ?? 0);
+    fastValEl.textContent = (payload.fast_mode ? "Yes" : "No");
+    programValEl.textContent = payload.program_id;
+    sessNumValEl.textContent = payload.session_num;
+    enableComposer();
+    btnRecap.disabled = false;
+    btnGoDash.style.display = "none";
+    chatEl.innerHTML = ""; // reset
+    addBubble("system","Session started. I’ll ask one question at a time.\n(Plan-bound. If Session 1, you’ll see the GAD intake form.)");
+    connectWS();
+    timerHandle = setInterval(fetchStateTick, 1000);
+  }catch(e){
+    alert("Failed to start session. Is the backend reachable?");
+    btnStart.disabled = false;
+  } finally {
+    btnStart.disabled = false;
+  }
+}
+
+function connectWS(){
+  if(!sessionId){ return; }
+  const base = wsBaseFromApi();
+  const url = `${base}/v1/sessions/${sessionId}/events`;
+  try{
+    ws = new WebSocket(url);
+    ws.onopen = ()=> addEvent("Connected to event stream");
+    ws.onmessage = (ev)=>{
+      try{
+        const msg = JSON.parse(ev.data);
+        if(msg.type === "warn_25"){
+          addEvent("⚠️ " + msg.message);
+          setStatus("warned");
+        }else if(msg.type === "hard_cap_30"){
+          addEvent("⏱️ " + msg.message);
+          setStatus("capped");
+          disableComposer();
+        }else if(msg.type === "recap_ready"){
+          addEvent("📄 Recap is ready.");
+        }else{
+          addEvent("Event: " + ev.data);
+        }
+      }catch(_){ addEvent(ev.data); }
+    };
+    ws.onclose = ()=> addEvent("Event stream closed");
+  }catch(e){
+    addEvent("WS connect failed");
+  }
+}
+
+/* ===== UI HINTS: Multiselect ===== */
+function showMultiSelect(hints){
+  currentHints = hints;
+  selectHelp.textContent = `Pick ${hints.min||1}–${hints.max||hints.options?.length||5} goals (tap to toggle).`;
+  chipsEl.innerHTML = "";
+  (hints.options || []).forEach((opt, i)=>{
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.textContent = `${i+1}) ${opt}`;
+    chip.dataset.index = (i+1).toString();
+    chip.onclick = ()=> chip.classList.toggle("sel");
+    chipsEl.appendChild(chip);
+  });
+  selectPanel.style.display = "block";
+  inputEl.placeholder = "You can also type custom goals here…";
+}
+
+function hideMultiSelect(){
+  selectPanel.style.display = "none";
+  currentHints = null;
+}
+
+btnSelectCancel.onclick = hideMultiSelect;
+btnSelectSend.onclick = ()=>{
+  if(!currentHints) return hideMultiSelect();
+  const chosenIdx = Array.from(chipsEl.querySelectorAll(".chip.sel")).map(c=>c.dataset.index);
+  const custom = inputEl.value.trim();
+  let outgoing = chosenIdx.join(", ");
+  if(custom) outgoing = outgoing ? `${outgoing}, ${custom}` : custom;
+  inputEl.value = outgoing;
+  hideMultiSelect();
+  sendMessage();
+};
+
+/* ===== Chat send ===== */
+async function sendMessage(){
+  if(!sessionId) return;
+  const email = (emailInput.value || "").trim();
+  if(!validEmail(email)){
+    alert("Please enter a valid email before sending.");
+    return;
+  }
+  const text = inputEl.value.trim();
+  if(!text && !currentHints) return;
+  addBubble("user", text || "(selection sent)");
+  inputEl.value = "";
+  btnSend.disabled = true;
+  try{
+    const r = await fetch(`${API}/conversations/message`,{
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ session_id: sessionId, text, email }) // pass email to backfill/verify owner
+    });
+    const j = await r.json();
+
+    if(j.safety_locked){
+      addBubble("assistant", j.assistant_text, { turnId: j.turn_id || null, noFeedback: true });
+      setStatus("safety_locked");
+      addEvent("🚨 Safety lock engaged");
+      disableComposer();
+      return;
+    }
+
+    const noFb = !!j.no_feedback;
+    const hints = j.ui_hints || null;
+    const nxt = j.next_action || "ask";
+    const practiceId = j.practice_id || null;
+
+    addBubble("assistant", j.assistant_text, {
+      turnId: j.turn_id || null,
+      noFeedback: noFb,
+      practiceId,
+      nextAction: nxt
+    });
+
+    if (hints && hints.control === "multiselect") {
+      showMultiSelect(hints);
+    }
+
+    if (nxt === "session_complete") {
+      setStatus("completed");
+      disableComposer();
+      btnGoDash.style.display = "block";
+      addEvent("✅ Session completed. Recap delivered.");
+    } else {
+      enableComposer();
+    }
+
+  }catch(e){
+    addEvent("Error sending message.");
+    enableComposer();
+  }
+}
+
+/* ===== Recap on demand ===== */
+async function doRecap(){
+  if(!sessionId) return;
+  btnRecap.disabled = true;
+  try{
+    const r = await fetch(`${API}/sessions/recap`,{
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ session_id: sessionId })
+    });
+    const j = await r.json();
+    addBubble("assistant", "Recap:\n" + j.recap_text, { noFeedback: true });
+  }catch(e){
+    addEvent("Error generating recap.");
+  }finally{
+    btnRecap.disabled = false;
+  }
+}
+
+/* ===== Buttons ===== */
+btnStart.addEventListener("click", startSession);
+btnSend.addEventListener("click", sendMessage);
+btnRecap.addEventListener("click", doRecap);
+btnGoDash.addEventListener("click", ()=> {
+  addEvent("↩️ Go to Dashboard clicked.");
+  alert("This would take you to the Dashboard in the real app.");
+});
+inputEl.addEventListener("keydown", (e)=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendMessage(); }});
+</script>
+</body>
+</html>
