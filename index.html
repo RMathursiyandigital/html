@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>CuraTrail • Sessions 1 & 2 Tester (Persona-Aware)</title>
+<title>CuraTrail • Sessions 1–3 Tester (Persona-Aware)</title>
 <style>
   :root{--bg:#0f172a;--panel:#111827;--sub:#334155;--text:#e5e7eb;--muted:#94a3b8;--accent:#22c55e;--danger:#ef4444;--warn:#f59e0b;}
   *{box-sizing:border-box}
@@ -16,7 +16,7 @@
   .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .controls .grp{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12px}
   .controls input, .controls select{height:30px;border-radius:8px;border:1px solid #1f2937;background:#0f172a;color:#e5e7eb;padding:0 8px}
-  .controls input#apiBase{width:420px}
+  .controls input#apiBase{width:260px}
   .controls input[type="text"]{width:160px}
   .controls select#sessionNum{width:90px}
   button{border:1px solid #1f2937;background:#0f172a;color:#e5e7eb;padding:8px 12px;border-radius:10px;cursor:pointer}
@@ -56,6 +56,13 @@
   .field{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
   .field input, .field select, .field textarea{border:1px solid #1f2937;background:#0f172a;color:#e5e7eb;border-radius:8px;padding:8px}
   .row-space{display:flex;gap:8px}
+
+  /* --- Reframed table --- */
+  .tableWrap{margin:12px 16px;overflow:auto}
+  .tableWrap table{width:100%;border-collapse:collapse;background:#0b1220;border:1px solid #1f2937;border-radius:10px}
+  .tableWrap th,.tableWrap td{border:1px solid #1f2937;padding:10px;vertical-align:top}
+  .tableWrap th{background:#0a1626;color:#cbd5e1;text-align:left}
+  .tableWrap .summary{margin-top:10px;color:#cbd5e1;font-size:13px}
 </style>
 </head>
 <body>
@@ -63,20 +70,18 @@
   <div class="card">
     <header>
       <div>
-        <h1>CuraTrail — Sessions 1 & 2 Tester</h1>
+        <h1>CuraTrail — Sessions 1–3 Tester</h1>
         <div class="tag">Persona-aware • Works with your live backend</div>
       </div>
       <div class="controls">
-        <div class="grp"><span>API</span>
-          <input id="apiBase" type="url"
-            value="https://curatrail-ai-conversation.reddesert-cb734ab9.westus3.azurecontainerapps.io/v1" />
-        </div>
+        <div class="grp"><span>API</span><input id="apiBase" type="url" value="https://curatrail-ai-conversation.reddesert-cb734ab9.westus3.azurecontainerapps.io/v1" /></div>
         <div class="grp"><span>Email</span><input id="emailId" type="email" placeholder="you@example.com" /></div>
         <div class="grp"><span>Name</span><input id="displayName" type="text" placeholder="Your name" /></div>
         <div class="grp"><span>Session #</span>
           <select id="sessionNum">
             <option value="1">1 — Personalized GAD Profile Mapping</option>
             <option value="2">2 — Your Care Plan & Goal Setting</option>
+            <option value="3">3 — Challenging Negative Thoughts</option>
           </select>
         </div>
         <button id="btnProfile" class="ghost">Open Profile</button>
@@ -210,27 +215,7 @@
 
 <script>
 /* ---------- Elements ---------- */
-const apiBaseInput = document.getElementById("apiBase");
-
-/* Normalize: if someone pastes a /docs URL, convert to base /v1 */
-function normalizeApiBase(v){
-  if(!v) return "";
-  v = v.trim();
-  // strip fragment/query
-  v = v.replace(/[#?].*$/, "");
-  // if contains /docs, cut there
-  const docsIdx = v.indexOf("/docs");
-  if(docsIdx !== -1) v = v.slice(0, docsIdx);
-  // remove trailing slashes
-  v = v.replace(/\/+$/, "");
-  // append /v1 if not already
-  if(!/\/v1$/.test(v)) v = v + "/v1";
-  return v;
-}
-
-apiBaseInput.value = normalizeApiBase(apiBaseInput.value);
-let API = apiBaseInput.value;
-
+let API = document.getElementById("apiBase").value.replace(/\/$/, "");
 const chatEl        = document.getElementById("chat");
 const inputEl       = document.getElementById("input");
 const btnSend       = document.getElementById("btnSend");
@@ -277,24 +262,30 @@ const btnVideoDone  = document.getElementById("btnVideoDone");
 /* ---------- State ---------- */
 let sessionId = null;
 let pollTimer = null;
-let currentFlow = "S1"; // "S1" or "S2"
+let currentFlow = "S1"; // "S1" | "S2" | "S3"
 let s2Stage = null;     // "video"|"pvq"|"formulation"|"goals"|"homework"|"recap"
+let s3Stage = null;     // "video"|"pvq"|"intro"|"socratic"|"tr"|"homework"|"recap"
 let pvqList = [];
 let pvqIdx  = 0;
 let prog = { total_sessions: 20, next_session: 1, completed: [], in_progress: [], all_done: false };
+
+/* De-dupe assistant lines within a session */
+let seenAssistantTexts = new Set();
 
 const inflight = {
   s1Next:false, s1Answer:false,
   s2PvqLoad:false, s2PvqAnswer:false,
   s2FormNext:false, s2FormAnswer:false,
   s2GoalsNext:false, s2GoalsAnswer:false,
+  s3PvqLoad:false, s3PvqAnswer:false,
+  s3IntroNext:false,
+  s3SocNext:false, s3SocAnswer:false,
+  s3TrNext:false, s3TrAnswer:false,
   recap:false
 };
 
 /* ---------- Helpers ---------- */
-function resetInflight(){
-  for (const k of Object.keys(inflight)) inflight[k] = false;
-}
+function resetInflight(){ for (const k of Object.keys(inflight)) inflight[k] = false; }
 function addBubble(role, text, extraClass){
   const div = document.createElement("div");
   div.className = "bubble " + role + (extraClass ? " " + extraClass : "");
@@ -320,21 +311,77 @@ function setStatusBadge(val){
 function fmt(sec){ const m = Math.floor(sec/60).toString().padStart(2,"0"); const s = Math.floor(sec%60).toString().padStart(2,"0"); return `${m}:${s}`; }
 function enableComposer(on){ inputEl.disabled = !on; btnSend.disabled = !on; }
 function validEmail(v){ return typeof v === "string" && v.includes("@") && v.includes("."); }
+function escapeHtml(s){ return (s||"").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
+
+/* Reframe table helpers */
+function maybeRenderReframeFromText(text){
+  if (!text || chatEl.dataset.reframeShown === "1") return;
+  const rx = /original\s+thought\s+was:\s*['“](.+?)['”].+?balanced\s+(?:perspective|thought)\s+(?:is|:)\s*['“](.+?)['”]/is;
+  const m = text.match(rx);
+  if (!m) return;
+  const original = m[1].trim();
+  const reframed = m[2].trim();
+  addReframeTable(original, reframed);
+}
+function addReframeTable(original, reframed){
+  if (chatEl.dataset.reframeShown === "1") return;
+  const wrap = document.createElement("div");
+  wrap.className = "tableWrap";
+  wrap.innerHTML = `
+    <table>
+      <thead><tr><th>Original Thought</th><th>Reframed Thought</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>${escapeHtml(original)}</td>
+          <td>${escapeHtml(reframed)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="summary">By looking at the evidence, you created a more balanced perspective. That’s a big step in reducing the power of anxious thoughts.</div>
+  `;
+  chatEl.appendChild(wrap);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  chatEl.dataset.reframeShown = "1";
+  attemptSaveReframe(original, reframed);
+}
+async function attemptSaveReframe(original, reframed){
+  try{
+    if(!sessionId) return;
+    await fetch(`${API}/sessions/${sessionId}/s3/reframe/save`,{
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ original, reframed })
+    });
+  }catch(_){}
+}
+
+/* De-duped assistant bubble that also tries to render table */
+function addAssistant(text, extraClass){
+  const sig = (text||"").replace(/\s+/g," ").trim().toLowerCase();
+  if (sig) maybeRenderReframeFromText(text);
+  if (sig && seenAssistantTexts.has(sig)) { addEvent("Skipped duplicate assistant line."); return; }
+  if (sig) seenAssistantTexts.add(sig);
+  addBubble("assistant", text, extraClass);
+}
 
 /* Deep UI reset */
 function deepResetSessionUI() {
   chatEl.innerHTML = "";
   chatEl.dataset.capMsgShown = "0";
+  chatEl.dataset.recapDone = "0";
+  chatEl.dataset.reframeShown = "0";
+  seenAssistantTexts.clear();
+
   videoPanel.style.display = "none";
   videoTitle.textContent = "Intro";
   videoHint.textContent  = "Play in app; here click “Mark Completed”.";
   videoStatus.textContent = "Waiting…";
   videoDoneVal.textContent = "No";
   btnVideoDone.disabled = false;
+
   pvqPanel.style.display = "none";
   pvqList = []; pvqIdx = 0; pvqProg.textContent = "—"; pvqQEl.textContent = "—"; pvqAns.value = "";
   currentFlow = "S1";
-  s2Stage = null;
+  s2Stage = null; s3Stage = null;
   resetInflight();
   inputEl.value = "";
   enableComposer(false);
@@ -350,7 +397,7 @@ async function loadProgress(){
   const email = (emailInput.value||"").trim();
   if(!validEmail(email)) return;
   try{
-    const r = await fetch(`${API}/users/${encodeURIComponent(email)}/progress`, { cache: "no-store", mode:"cors" });
+    const r = await fetch(`${API}/users/${encodeURIComponent(email)}/progress`, { cache: "no-store" });
     if (!r.ok) return;
     const j = await r.json();
     prog = j;
@@ -375,7 +422,7 @@ async function loadProfile(){
   const email = (emailInput.value||"").trim();
   if(!validEmail(email)) return;
   try{
-    const r = await fetch(`${API}/users/${encodeURIComponent(email)}/profile`, { cache: "no-store", mode:"cors" });
+    const r = await fetch(`${API}/users/${encodeURIComponent(email)}/profile`, { cache: "no-store" });
     if(!r.ok){ Object.values(personaEls).forEach(el=>el.textContent="—"); return; }
     const j = await r.json();
     personaEls.role.textContent = j.role_label || "—";
@@ -408,7 +455,7 @@ async function saveProfile(){
   };
   try{
     const r = await fetch(`${API}/users/${encodeURIComponent(email)}/profile`,{
-      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body), mode:"cors"
+      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body)
     });
     if(!r.ok){ const e = await r.json().catch(()=>({detail:"save failed"})); throw new Error(e.detail||"Failed to save profile"); }
     addEvent("Profile saved."); drawer.style.display="none"; loadProfile();
@@ -425,13 +472,12 @@ async function startSession(){
     if(!validEmail(email)){ alert("Enter a valid email."); btnStart.disabled=false; return; }
 
     await saveProfile().catch(()=>{});
-    await loadProgress(); // will clamp if locked
+    await loadProgress();
     snum = Number(sessionNumEl.value || 1);
 
     const r = await fetch(`${API}/sessions/start`,{
       method:"POST", headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ email, display_name: name, session_number: snum }),
-      mode:"cors"
+      body: JSON.stringify({ email, display_name: name, session_number: snum })
     });
     if(!r.ok){ const e = await r.json().catch(()=>({detail:"start failed"})); throw new Error(e.detail||"Start failed"); }
     const j = await r.json();
@@ -444,35 +490,42 @@ async function startSession(){
 function adoptNewSession(newId, attemptNo, snum){
   deepResetSessionUI();
   sessionId = newId;
-  emailValEl.textContent = (emailInput.value||"").trim();
+  emailValEl.textContent = (emailInput.value||"").trim(); 
   nameValEl.textContent  = (nameInput.value||"User").trim() || "User";
   sidEl.textContent = newId;
 
-  currentFlow = (Number(snum) === 2 ? "S2" : "S1");
+  const s = Number(snum);
+  currentFlow = (s === 1 ? "S1" : s === 2 ? "S2" : "S3");
 
   if(currentFlow === "S1"){
     addBubble("system","Session 1 started.\n1) Complete intro video → 2) Intake chat → 3) Recap.","hint");
     videoTitle.textContent = "Intro to Personalized GAD";
     videoHint.textContent  = "Play in app; here click “Mark Completed”.";
     videoPanel.style.display = "block";
-  }else{
+  }else if(currentFlow === "S2"){
     addBubble("system","Session 2 started.\nFlow: Video → Post-video Qs → Case Formulation → Goals → Homework → Recap.","hint");
     videoTitle.textContent = "CBT Triangle Introduction";
     videoHint.textContent  = "Watch the Triangle intro; here click “Mark Completed” to continue.";
     videoPanel.style.display = "block";
     s2Stage = "video";
+  }else{
+    addBubble("system","Session 3 started.\nFlow: Video → Post-video Qs → Intro → Socratic Practice → Thought Records → Homework → Recap.","hint");
+    videoTitle.textContent = "Challenging Negative Thoughts Introduction";
+    videoHint.textContent  = "Watch the Session 3 intro; here click “Mark Completed” to continue.";
+    videoPanel.style.display = "block";
+    s3Stage = "video";
   }
 
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(pollStatus, 1000);
 }
 
-/* Fresh attempt (redo) */
+/* Fresh attempt */
 async function doFreshAttempt(){
   if (!sessionId) return;
   btnFreshAttempt.disabled = true;
   try{
-    const r = await fetch(`${API}/sessions/${sessionId}/redo`, { method:"POST", mode:"cors" });
+    const r = await fetch(`${API}/sessions/${sessionId}/redo`, { method:"POST" });
     if (!r.ok) {
       const e = await r.json().catch(()=>({detail:"redo failed"}));
       throw new Error(e.detail || "Failed to create a fresh attempt");
@@ -492,7 +545,7 @@ async function markVideoCompleted(){
   if(!sessionId) return;
   btnVideoDone.disabled = true;
   try{
-    const r = await fetch(`${API}/sessions/${sessionId}/video/complete`, { method:"POST", mode:"cors" });
+    const r = await fetch(`${API}/sessions/${sessionId}/video/complete`, { method:"POST" });
     if(!r.ok){ throw new Error("Failed to mark video complete"); }
     videoStatus.textContent = "Completed ✔";
     videoDoneVal.textContent = "Yes";
@@ -500,8 +553,10 @@ async function markVideoCompleted(){
 
     if(currentFlow === "S1"){
       await s1_nextPrompt();
-    }else{
+    }else if(currentFlow === "S2"){
       await s2_loadVideoQuestions();
+    }else{
+      await s3_loadVideoQuestions();
     }
   }catch(err){
     alert(err.message||"Video complete failed");
@@ -514,7 +569,7 @@ async function s1_nextPrompt(){
   if (inflight.s1Next) return;
   inflight.s1Next = true;
   try{
-    const r = await fetch(`${API}/sessions/${sessionId}/intake/next`, { cache:"no-store", mode:"cors" });
+    const r = await fetch(`${API}/sessions/${sessionId}/intake/next`, { cache:"no-store" });
     if(!r.ok){ const e = await r.json().catch(()=>({detail:"Next not available"})); addEvent("Next prompt blocked: " + (e.detail||r.status)); return; }
     const j = await r.json();
     renderAIEnvelope(j.ai, "S1");
@@ -528,11 +583,9 @@ async function s1_sendAnswer(){
     if(!sessionId) return;
     const msg = (inputEl.value||"").trim();
     if(!msg){ inflight.s1Answer = false; return; }
-    addBubble("user", msg);
-    enableComposer(false);
-    inputEl.value = "";
+    addBubble("user", msg); enableComposer(false); inputEl.value = "";
     const r = await fetch(`${API}/sessions/${sessionId}/intake/answer`,{
-      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ message: msg }), mode:"cors"
+      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ message: msg })
     });
     if(!r.ok){ const e = await r.json().catch(()=>({detail:"answer failed"})); addEvent("Answer rejected: " + (e.detail||r.status)); enableComposer(true); return; }
     const j = await r.json();
@@ -542,22 +595,22 @@ async function s1_sendAnswer(){
   finally { inflight.s1Answer = false; }
 }
 
-/* ---------- Session 2: PVQ ---------- */
+/* ---------- Session 2: PVQs ---------- */
 async function s2_loadVideoQuestions(){
   if (inflight.s2PvqLoad) return;
   inflight.s2PvqLoad = true;
   pvqPanel.style.display = "none";
   pvqList = []; pvqIdx = 0;
   try{
-    const r = await fetch(`${API}/sessions/${sessionId}/s2/video/questions`, { cache:"no-store", mode:"cors" });
-    if(!r.ok){ const e = await r.json().catch(()=>({detail:"No questions"})); addEvent("PVQ not available: " + (e.detail||r.status)); return s2_startFormulation(); }
+    const r = await fetch(`${API}/sessions/${sessionId}/s2/video/questions`, { cache:"no-store" });
+    if(!r.ok){ const e = await r.json().catch(()=>({detail:"No questions"})); addEvent("S2 PVQ not available: " + (e.detail||r.status)); return s2_startFormulation(); }
     const j = await r.json();
     pvqList = j.questions || [];
     if(pvqList.length === 0){ return s2_startFormulation(); }
     s2Stage = "pvq";
     pvqPanel.style.display = "block";
     renderPVQ();
-  }catch(_){ addEvent("Error loading PVQs"); s2_startFormulation(); }
+  }catch(_){ addEvent("Error loading S2 PVQs"); s2_startFormulation(); }
   finally { inflight.s2PvqLoad = false; }
 }
 function renderPVQ(){
@@ -570,19 +623,28 @@ function renderPVQ(){
 }
 pvqPrev.onclick = ()=>{ if(pvqIdx>0){ pvqIdx--; renderPVQ(); } };
 pvqNext.onclick = async ()=>{
-  if (inflight.s2PvqAnswer) return;
-  inflight.s2PvqAnswer = true;
+  const isS2 = currentFlow==="S2";
+  const isS3 = currentFlow==="S3";
+  const inflag = isS2 ? "s2PvqAnswer" : "s3PvqAnswer";
+  if (inflight[inflag]) return;
+  inflight[inflag] = true;
   const q = pvqList[pvqIdx];
   const ans = pvqAns.value.trim();
-  if(!ans){ alert("Please answer before continuing."); inflight.s2PvqAnswer = false; return; }
+  if(!ans){ alert("Please answer before continuing."); inflight[inflag] = false; return; }
   try{
-    await fetch(`${API}/sessions/${sessionId}/s2/video/questions/answer`,{
-      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ question_id: q.id, answer: ans }), mode:"cors"
+    const path = isS2 ? "s2" : "s3";
+    await fetch(`${API}/sessions/${sessionId}/${path}/video/questions/answer`,{
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ qid: q.id, question_id: q.id, answer: ans })
     });
   }catch(_){}
   if(pvqIdx < pvqList.length-1){ pvqIdx++; renderPVQ(); }
-  else{ pvqPanel.style.display="none"; s2_startFormulation(); }
-  inflight.s2PvqAnswer = false;
+  else{
+    pvqPanel.style.display="none";
+    if (isS2) s2_startFormulation();
+    else s3_startIntro();
+  }
+  inflight[inflag] = false;
 };
 
 /* ---------- Session 2: Case Formulation ---------- */
@@ -595,7 +657,7 @@ async function s2_formulation_next(){
   if (inflight.s2FormNext) return;
   inflight.s2FormNext = true;
   try{
-    const r = await fetch(`${API}/sessions/${sessionId}/s2/formulation/next`, { cache:"no-store", mode:"cors" });
+    const r = await fetch(`${API}/sessions/${sessionId}/s2/formulation/next`, { cache:"no-store" });
     if(!r.ok){ const e = await r.json().catch(()=>({detail:"Formulation next failed"})); addEvent("Formulation next: " + (e.detail||r.status)); return; }
     const j = await r.json(); renderAIEnvelope(j.ai, "S2F");
   }catch(_){ addEvent("Error in formulation/next"); }
@@ -606,12 +668,10 @@ async function s2_formulation_answer(){
   inflight.s2FormAnswer = true;
   const msg = (inputEl.value||"").trim();
   if(!msg){ inflight.s2FormAnswer = false; return; }
-  addBubble("user", msg);
-  enableComposer(false);
-  inputEl.value = "";
+  addBubble("user", msg); enableComposer(false); inputEl.value = "";
   try{
     const r = await fetch(`${API}/sessions/${sessionId}/s2/formulation/answer`,{
-      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ message: msg }), mode:"cors"
+      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ message: msg })
     });
     if(!r.ok){ const e = await r.json().catch(()=>({detail:"formulation answer failed"})); addEvent("Formulation answer: " + (e.detail||r.status)); enableComposer(true); return; }
     const j = await r.json();
@@ -629,7 +689,7 @@ async function s2_startGoals(){
   if (inflight.s2GoalsNext) return;
   inflight.s2GoalsNext = true;
   try{
-    const r = await fetch(`${API}/sessions/${sessionId}/s2/goals/next`, { cache:"no-store", mode:"cors" });
+    const r = await fetch(`${API}/sessions/${sessionId}/s2/goals/next`, { cache:"no-store" });
     if(!r.ok){ const e = await r.json().catch(()=>({detail:"goals next failed"})); addEvent("Goals next: " + (e.detail||r.status)); return; }
     const j = await r.json();
     renderAIEnvelope(j.ai, "S2G");
@@ -641,12 +701,10 @@ async function s2_goals_answer(){
   inflight.s2GoalsAnswer = true;
   const msg = (inputEl.value||"").trim();
   if(!msg){ inflight.s2GoalsAnswer = false; return; }
-  addBubble("user", msg);
-  enableComposer(false);
-  inputEl.value = "";
+  addBubble("user", msg); enableComposer(false); inputEl.value = "";
   try{
     const r = await fetch(`${API}/sessions/${sessionId}/s2/goals/answer`,{
-      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ message: msg }), mode:"cors"
+      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ message: msg })
     });
     if(!r.ok){ const e = await r.json().catch(()=>({detail:"goals answer failed"})); addEvent("Goals answer: " + (e.detail||r.status)); enableComposer(true); return; }
     const j = await r.json();
@@ -656,47 +714,185 @@ async function s2_goals_answer(){
   finally { inflight.s2GoalsAnswer = false; }
 }
 
+/* ---------- Session 3: PVQs ---------- */
+async function s3_loadVideoQuestions(){
+  if (inflight.s3PvqLoad) return;
+  inflight.s3PvqLoad = true;
+  pvqPanel.style.display = "none";
+  pvqList = []; pvqIdx = 0;
+  try{
+    const r = await fetch(`${API}/sessions/${sessionId}/s3/video/questions`, { cache:"no-store" });
+    if(!r.ok){ const e = await r.json().catch(()=>({detail:"No questions"})); addEvent("S3 PVQ not available: " + (e.detail||r.status)); return s3_startIntro(); }
+    const j = await r.json();
+    pvqList = j.questions || [];
+    if(pvqList.length === 0){ return s3_startIntro(); }
+    s3Stage = "pvq";
+    pvqPanel.style.display = "block";
+    renderPVQ();
+  }catch(_){ addEvent("Error loading S3 PVQs"); s3_startIntro(); }
+  finally { inflight.s3PvqLoad = false; }
+}
+
+/* ---------- Session 3: Intro ---------- */
+async function s3_startIntro(){
+  s3Stage = "intro";
+  addBubble("system","Session 3 Intro: why thoughts feel true • what Socratic questioning is • what we’ll practice.","hint");
+  await s3_intro_next();
+}
+async function s3_intro_next(){
+  if (inflight.s3IntroNext) return;
+  inflight.s3IntroNext = true;
+  try{
+    const r = await fetch(`${API}/sessions/${sessionId}/s3/intro/next`, { cache:"no-store" });
+    if(!r.ok){ const e = await r.json().catch(()=>({detail:"S3 intro next failed"})); addEvent("S3 intro next: " + (e.detail||r.status)); return; }
+    const j = await r.json(); // envelope object
+    renderAIEnvelope(j, "S3I");
+  }catch(_){ addEvent("Error in S3 intro/next"); }
+  finally { inflight.s3IntroNext = false; }
+}
+
+/* ---------- Session 3: Socratic ---------- */
+async function s3_startSocratic(){
+  s3Stage = "socratic";
+  if (chatEl.dataset.s3SocraticBanner !== "1") {
+    addBubble("system","Socratic Practice: we’ll examine ONE thought with 3–4 questions, then reframe it.","hint");
+    chatEl.dataset.s3SocraticBanner = "1";
+  }
+  await s3_socratic_next();
+}
+async function s3_socratic_next(){
+  if (inflight.s3SocNext) return;
+  inflight.s3SocNext = true;
+  try{
+    const r = await fetch(`${API}/sessions/${sessionId}/s3/socratic/next`, { cache:"no-store" });
+    if(!r.ok){ const e = await r.json().catch(()=>({detail:"S3 Socratic next failed"})); addEvent("S3 socratic next: " + (e.detail||r.status)); return; }
+    const j = await r.json();
+    renderAIEnvelope(j, "S3S");
+    if (s3Stage === "socratic" && btnSend.disabled) enableComposer(true);
+  }catch(_){ addEvent("Error in S3 socratic/next"); }
+  finally { inflight.s3SocNext = false; }
+}
+async function s3_socratic_answer(){
+  if (inflight.s3SocAnswer) return;
+  inflight.s3SocAnswer = true;
+  const msg = (inputEl.value||"").trim();
+  if(!msg){ inflight.s3SocAnswer = false; return; }
+  addBubble("user", msg); enableComposer(false); inputEl.value="";
+  try{
+    const r = await fetch(`${API}/sessions/${sessionId}/s3/socratic/answer`,{
+      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ user_text: msg })
+    });
+    if(!r.ok){ const e = await r.json().catch(()=>({detail:"S3 socratic answer failed"})); addEvent("S3 socratic answer: " + (e.detail||r.status)); enableComposer(true); return; }
+    const j = await r.json();
+    if(j && j.type==="safety_pause"){ renderAIEnvelope(j, "S3S"); capSessionForSafety(); return; }
+    renderAIEnvelope(j, "S3S");
+  }catch(_){ addEvent("Error sending S3 socratic answer"); enableComposer(true); }
+  finally { inflight.s3SocAnswer = false; }
+}
+
+/* ---------- Session 3: Thought Records ---------- */
+async function s3_startTR(){
+  s3Stage = "tr";
+  if (chatEl.dataset.s3TRBanner !== "1") {
+    addBubble("system","Thought Records: we’ll log 2–3 rows (Trigger, Thought, For/Against, Reframed).","hint");
+    chatEl.dataset.s3TRBanner = "1";
+  }
+  await s3_tr_next();
+}
+async function s3_tr_next(){
+  if (inflight.s3TrNext) return;
+  inflight.s3TrNext = true;
+  try{
+    const r = await fetch(`${API}/sessions/${sessionId}/s3/thought-records/next`, { cache:"no-store" });
+    if(!r.ok){ const e = await r.json().catch(()=>({detail:"S3 TR next failed"})); addEvent("S3 TR next: " + (e.detail||r.status)); return; }
+    const j = await r.json();
+    renderAIEnvelope(j, "S3T");
+    if (s3Stage === "tr" && btnSend.disabled) enableComposer(true);
+  }catch(_){ addEvent("Error in S3 TR/next"); }
+  finally { inflight.s3TrNext = false; }
+}
+async function s3_tr_answer(){
+  if (inflight.s3TrAnswer) return;
+  inflight.s3TrAnswer = true;
+  const msg = (inputEl.value||"").trim();
+  if(!msg){ inflight.s3TrAnswer = false; return; }
+  addBubble("user", msg); enableComposer(false); inputEl.value="";
+  try{
+    const r = await fetch(`${API}/sessions/${sessionId}/s3/thought-records/answer`,{
+      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ user_text: msg })
+    });
+    if(!r.ok){ const e = await r.json().catch(()=>({detail:"S3 TR answer failed"})); addEvent("S3 TR answer: " + (e.detail||r.status)); enableComposer(true); return; }
+    const j = await r.json();
+    if(j && j.type==="safety_pause"){ renderAIEnvelope(j, "S3T"); capSessionForSafety(); return; }
+    renderAIEnvelope(j, "S3T");
+  }catch(_){ addEvent("Error sending S3 TR answer"); enableComposer(true); }
+  finally { inflight.s3TrAnswer = false; }
+}
+
 /* ---------- Homework & Recap ---------- */
 async function s2_createHomework(){
   s2Stage = "homework";
   try{
-    const r = await fetch(`${API}/sessions/${sessionId}/s2/homework/create`, { method:"POST", mode:"cors" });
+    const r = await fetch(`${API}/sessions/${sessionId}/s2/homework/create`, { method:"POST" });
     if(!r.ok){ const e = await r.json().catch(()=>({detail:"homework create failed"})); addEvent("Homework: " + (e.detail||r.status)); return s2_finalizeRecap(); }
     const j = await r.json();
-    addBubble("assistant", `Homework created:\n${j.title}\n\n${j.instructions}`);
-    if(j.supporting_url){
+    addAssistant(`Homework created:\n${j.title||"Worry Journal"}\n\n${j.instructions||"Open the .docx to use it."}`);
+    if(j.supporting_url || j.uri){
+      const href = j.supporting_url || j.uri;
       const a = document.createElement("a");
-      a.href = j.supporting_url; a.textContent = "⬇ Download Worry Journal (.docx)"; a.target="_blank"; a.className="link";
-      const wrap = document.createElement("div"); wrap.appendChild(a);
-      chatEl.appendChild(wrap);
+      a.href = href; a.textContent = "⬇ Download Worry Journal (.docx)"; a.target="_blank"; a.className="link";
+      const wrap = document.createElement("div"); wrap.appendChild(a); chatEl.appendChild(wrap);
     }
     s2_finalizeRecap();
   }catch(_){ addEvent("Error creating homework"); s2_finalizeRecap(); }
 }
-async function s2_finalizeRecap(){ await finalizeRecap(); }
-async function finalizeRecap(){
-  if (inflight.recap) return;
+async function s3_createHomework(){
+  s3Stage = "homework";
+  try{
+    const r = await fetch(`${API}/sessions/${sessionId}/s3/homework/create`, { method:"POST" });
+    if(!r.ok){ const e = await r.json().catch(()=>({detail:"homework create failed"})); addEvent("S3 Homework: " + (e.detail||r.status)); return s3_finalizeRecap(); }
+    const j = await r.json();
+    addAssistant(`Homework created:\nReframing Thought Log\n\nLog trigger, automatic thought, evidence for/against, balanced thought, and emotional shift daily.`);
+    if(j.uri){
+      const a = document.createElement("a");
+      a.href = j.uri; a.textContent = "⬇ Download Reframing Log (.docx)"; a.target="_blank"; a.className="link";
+      const wrap = document.createElement("div"); wrap.appendChild(a); chatEl.appendChild(wrap);
+    }
+    s3_finalizeRecap();
+  }catch(_){ addEvent("Error creating S3 homework"); s3_finalizeRecap(); }
+}
+
+async function s2_finalizeRecap(){ await finalizeRecapGeneric("S2"); }
+async function s3_finalizeRecap(){ await finalizeRecapGeneric("S3"); }
+
+async function finalizeRecapGeneric(flow){
+  if (inflight.recap || chatEl.dataset.recapDone === "1") return;
   inflight.recap = true;
   if(!sessionId) { inflight.recap=false; return; }
   btnRecap.disabled = true;
   try{
-    const r = await fetch(`${API}/sessions/${sessionId}/recap`, { method:"POST", mode:"cors" });
+    const path = (flow==="S3") ? `s3/recap` : `recap`;
+    const r = await fetch(`${API}/sessions/${sessionId}/${path}`, { method:"POST" });
     if(!r.ok){ const e = await r.json().catch(()=>({detail:"recap failed"})); throw new Error(e.detail||"Recap failed"); }
     const j = await r.json();
-    const text = (j.recap_paragraphs||[]).join("\n\n");
-    addBubble("assistant","Session Recap:\n\n"+text);
-    if(j.pdf_url){ recapPdfLink.href = j.pdf_url; recapPdfLink.style.display="inline-block"; addEvent("Recap PDF ready."); }
+
+    const paras = j.recap_paragraphs || (j.ai && j.ai.recap && j.ai.recap.paragraphs) || [];
+    const text = Array.isArray(paras) ? paras.join("\n\n") : "";
+    if(text) addAssistant("Session Recap:\n\n"+text);
+
     setStatusBadge(j.session_status||"completed");
     enableComposer(false);
+    chatEl.dataset.recapDone = "1";
+    btnRecap.disabled = true;
   }catch(err){ alert(err.message||"Recap failed"); }
-  finally{ btnRecap.disabled = false; inflight.recap = false; }
+  finally{ inflight.recap = false; }
 }
 
 /* ---------- Poll timer ---------- */
 async function pollStatus(){
   if(!sessionId) return;
   try{
-    const r = await fetch(`${API}/sessions/${sessionId}/status`, { cache:"no-store", mode:"cors" });
+    const r = await fetch(`${API}/sessions/${sessionId}/status`, { cache:"no-store" });
     if(!r.ok) return;
     const j = await r.json();
     const t = j.timer||{};
@@ -704,13 +900,12 @@ async function pollStatus(){
     warnEl.textContent = t.warn ? "⚠ yes" : "no";
     capEl.textContent  = t.cap  ? "⏱ yes" : "no";
     setStatusBadge(j.status);
-
     const cappedOrEnded = (j.status === "ended_early") || (t.cap === true);
     btnFreshAttempt.style.display = cappedOrEnded ? "inline-block" : "none";
 
     if(t.cap && j.status!=="completed"){
       if(chatEl.dataset.capMsgShown !== "1"){
-        addBubble("assistant","We’ve reached the 30-minute limit. You can generate a recap with what we have, or start a fresh attempt.","danger");
+        addAssistant("We’ve reached the 30-minute limit. You can generate a recap with what we have, or start a fresh attempt.","danger");
         chatEl.dataset.capMsgShown = "1";
       }
       enableComposer(false);
@@ -724,30 +919,47 @@ function renderAIEnvelope(ai, ctx){
   if(!ai || typeof ai!=="object"){ addEvent("Bad AI envelope"); return; }
   const s = ai.safety||{level:"ok"};
   if(ai.type==="safety_pause"){
-    addBubble("assistant", ai.acknowledgement || "I’m here with you. Are you in immediate danger right now?", "danger");
+    addAssistant(ai.acknowledgement || "I’m here with you. Are you in immediate danger right now?", "danger");
     addEvent("🚨 Safety pause ("+(s.level||"")+")"); return;
   }
   if(ai.type==="question"){
-    addBubble("assistant", ai.prompt || "(question)");
+    addAssistant(ai.prompt || "(question)");
     enableComposer(true); btnRecap.disabled = true; return;
   }
   if(ai.type==="ack"){
-    addBubble("assistant", ai.acknowledgement || "Noted.");
-    if(ai.done){
+    addAssistant(ai.acknowledgement || "Noted.");
+
+    // If server provides structured reframe, render the table immediately
+    if (ai.reframe && ai.reframe.original && ai.reframe.reframed) {
+      addReframeTable(ai.reframe.original, ai.reframe.reframed);
+    }
+
+    const wantsInput =
+      (ai.done !== true) &&
+      (
+        ai.capture_key ||
+        (ai.ui && ai.ui.hint === "message") ||
+        (ctx === "S3S" || ctx === "S3T" || ctx === "S2F" || ctx === "S2G")
+      );
+
+    if (!wantsInput && ai.done) {
       enableComposer(false);
+      if(currentFlow==="S3" && s3Stage==="intro"){ s3_startSocratic(); return; }
       if(currentFlow==="S2" && s2Stage==="formulation"){ s2_startGoals(); return; }
       if(currentFlow==="S2" && s2Stage==="goals"){ s2_createHomework(); return; }
-    }else{
+      if(currentFlow==="S3" && s3Stage==="socratic"){ s3_startTR(); return; }
+      if(currentFlow==="S3" && s3Stage==="tr"){ s3_createHomework(); return; }
+    } else {
       enableComposer(true);
     }
     return;
   }
   if(ai.type==="recap"){
     const paras = (ai.recap && ai.recap.paragraphs) ? ai.recap.paragraphs.join("\n\n") : "(summary)";
-    addBubble("assistant", paras);
+    addAssistant(paras);
     btnRecap.disabled = false; enableComposer(false); return;
   }
-  addBubble("assistant", JSON.stringify(ai,null,2));
+  addAssistant(JSON.stringify(ai,null,2));
 }
 
 function capSessionForSafety(){
@@ -755,15 +967,7 @@ function capSessionForSafety(){
 }
 
 /* ---------- Wire up ---------- */
-apiBaseInput.addEventListener("change", (e)=> {
-  const normalized = normalizeApiBase(e.target.value);
-  if (normalized !== e.target.value) {
-    e.target.value = normalized;
-    addEvent("Normalized API URL → " + normalized);
-  }
-  API = normalized;
-  loadProfile(); loadProgress();
-});
+document.getElementById("apiBase").addEventListener("change", (e)=> { API = e.target.value.replace(/\/$/, ""); loadProfile(); loadProgress(); });
 emailInput.addEventListener("blur", ()=>{ loadProfile(); loadProgress(); });
 btnStart.addEventListener("click", startSession);
 btnVideoDone.addEventListener("click", markVideoCompleted);
@@ -772,9 +976,20 @@ btnSend.addEventListener("click", ()=>{
   if(currentFlow==="S2"){
     if(s2Stage==="formulation"){ s2_formulation_answer(); return; }
     if(s2Stage==="goals"){ s2_goals_answer(); return; }
+    return;
+  }
+  if(currentFlow==="S3"){
+    if(s3Stage==="socratic"){ s3_socratic_answer(); return; }
+    if(s3Stage==="tr"){ s3_tr_answer(); return; }
+    // Fallback: if input is enabled during S3 but stage hasn’t flipped yet, treat as Socratic
+    if(!btnSend.disabled){ s3_socratic_answer(); return; }
   }
 });
-btnRecap.addEventListener("click", finalizeRecap);
+btnRecap.addEventListener("click", ()=>{
+  if(chatEl.dataset.recapDone === "1") return;
+  if(currentFlow==="S3") s3_finalizeRecap();
+  else s2_finalizeRecap(); // S1 & S2 shared path
+});
 btnFreshAttempt.addEventListener("click", doFreshAttempt);
 btnProfile.addEventListener("click", ()=>{ drawer.style.display="block"; loadProfile(); });
 btnCloseProfile.addEventListener("click", ()=> drawer.style.display="none");
